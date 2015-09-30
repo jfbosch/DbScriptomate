@@ -7,9 +7,11 @@ using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using Microsoft.SqlServer.Management.Common;
 using System.Data.SqlClient;
+using System.Net.Http;
 using ServiceStack.ServiceClient.Web;
 using Microsoft.SqlServer.Management.Smo;
 using System.Text;
+using ServiceStack.Text;
 
 namespace DbScriptomate
 {
@@ -303,6 +305,19 @@ namespace DbScriptomate
 		        };
 		    }
 			string url = (string)new AppSettingsReader().GetValue("NextSequenceNumberServiceUrl", typeof(string));
+			if (url.Contains("api"))
+			{
+				using (var client = new HttpClient())
+				{
+					Console.WriteLine("Please enter the password for connecting to the webapi");
+					var password = Console.ReadLine();
+					var webapiUrl = string.Format("{0}?key={1}&password={2}", url, key, password);
+					var next = client.GetStringAsync(webapiUrl).Result;
+					var serializer = new JsonSerializer<string>();
+					var value = serializer.DeserializeFromString(next);
+					return new GetNextNumberResponse() { NextSequenceNumber = value, ForKey = key };
+				}
+			}
 			using (var client = new JsonServiceClient(url))
 			{
 				var response = client.Post<GetNextNumberResponse>(new GetNextNumber { ForKey = key });
