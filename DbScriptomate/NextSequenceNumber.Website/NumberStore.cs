@@ -1,8 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Web;
 using System.Web.Http;
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Table;
 
 namespace NextSequenceNumber.Service
 {
@@ -20,26 +23,44 @@ namespace NextSequenceNumber.Service
 
 		private static string ReadAndIncrementSequenceNumber(string key)
 		{
-			string file = string.Format("SequenceNumber_{0}.txt", key);
+			CloudStorageAccount storageAccount =
+				CloudStorageAccount.Parse(System.Configuration.ConfigurationManager.AppSettings.Get("AzureStorageAddress"));
 
-			var dir = HttpContext.Current.Server.MapPath("~/");//Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-			file = Path.Combine(dir, file);
-			Console.WriteLine("Reading from store file: " + file);
-			if (!File.Exists(file))
-				File.AppendAllText(file, "00000");
+			
+			var tableClient = storageAccount.CreateCloudTableClient();
+			var tableRef = tableClient.GetTableReference(System.Configuration.ConfigurationManager.AppSettings.Get("AzureTableName"));
+			tableRef.CreateIfNotExists();
 
-			string fileContent = File.ReadAllText(file);
+			var query = tableRef.CreateQuery<SequenceEntity>();
+			var lastEntity = query.Where(o => o.PartitionKey == key).FirstOrDefault();
+
+			var lastNumber = "00000";
+			if (lastEntity != null)
+			{
+				lastNumber = lastEntity.Number;
+			}
+			else
+			{
+				lastEntity = new SequenceEntity(){PartitionKey=key,RowKey="1"};
+			}
+
 			int number;
-			if (!int.TryParse(fileContent, out number))
-				return "failed to parse: " + fileContent;
+			if (!int.TryParse(lastNumber, out number))
+				return "failed to parse: " + lastNumber;
 
 			number++;
 			string nextNumber = number.ToString("00000");
-			File.WriteAllText(file, nextNumber);
+			
+			// save back to table
+			lastEntity.Number = nextNumber;
+			tableRef.Execute(TableOperation.InsertOrReplace(lastEntity));
 
 			return nextNumber;
 		}
 
-
+		public class SequenceEntity : TableEntity
+		{
+			public string Number { get; set; }
+		}
 	}
 }
