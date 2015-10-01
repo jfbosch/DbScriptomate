@@ -309,8 +309,7 @@ namespace DbScriptomate
 			{
 				using (var client = new HttpClient())
 				{
-					Console.WriteLine("Please enter the password for connecting to the webapi");
-					var password = Console.ReadLine();
+					var password = System.Configuration.ConfigurationManager.AppSettings.Get("Password");
 					var webapiUrl = string.Format("{0}?key={1}&password={2}", url, key, password);
 					var next = client.GetStringAsync(webapiUrl).Result;
 					var serializer = new JsonSerializer<string>();
