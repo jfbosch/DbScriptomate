@@ -281,15 +281,15 @@ namespace DbScriptomate
 			var input = Console.ReadKey();
 			
             Console.Clear();
-			switch (input.Key)
+			switch (input.KeyChar)
 			{
-				case ConsoleKey.D1:
+				case '1':
 					GenerateNewScript(runArgs, dbDir);
 					break;
-				case ConsoleKey.D2:
+				case '2':
 					ApplyScriptsToDb(runArgs, dbDir);
 					break;
-				case ConsoleKey.D3:
+				case '3':
 					InitialSetup();
 					break;
 			}
