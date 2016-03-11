@@ -12,6 +12,7 @@ using ServiceStack.ServiceClient.Web;
 using Microsoft.SqlServer.Management.Smo;
 using System.Text;
 using ServiceStack.Text;
+using System.Globalization;
 
 namespace DbScriptomate
 {
@@ -280,15 +281,15 @@ namespace DbScriptomate
 			var input = Console.ReadKey();
 			
             Console.Clear();
-			switch (input.KeyChar)
+			switch (input.Key)
 			{
-				case '1':
+				case ConsoleKey.D1:
 					GenerateNewScript(runArgs, dbDir);
 					break;
-				case '2':
+				case ConsoleKey.D2:
 					ApplyScriptsToDb(runArgs, dbDir);
 					break;
-				case '3':
+				case ConsoleKey.D3:
 					InitialSetup();
 					break;
 			}
@@ -341,7 +342,7 @@ namespace DbScriptomate
 		private decimal ToDecimal(string filename)
 		{
 			var value = _sequenceRegex.Match(filename).Groups[1].Value;
-			var num = Convert.ToDecimal(value);
+			var num = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
 			return num;
 		}
 
