@@ -17,7 +17,7 @@ namespace DbScriptomate
 {
 	internal class App
 	{
-		private readonly Regex _sequenceRegex = new Regex(@"(^\d\d\d+)[.,].*");
+		private readonly Regex _sequenceRegex = new Regex(@"(^\d{3,}(\.\d+){0,1})[.,].*");
 		private RunArguments _runArgs;
 		private DirectoryInfo _appDir;
 
@@ -65,7 +65,7 @@ namespace DbScriptomate
 			var scripts = dbDir.GetFiles("*.sql", SearchOption.AllDirectories).AsEnumerable()
 				.Where(f => !f.Directory.Name.StartsWith("_"))
 				.Where(f => _sequenceRegex.IsMatch(f.Name))
-				.OrderBy(f => ToInt(f.Name))
+				.OrderBy(f => ToDecimal(f.Name))
 				.ToList();
 			return scripts;
 		}
@@ -155,7 +155,7 @@ namespace DbScriptomate
 			Console.WriteLine("The following are scripts not yet run on the selected DB:");
 			foreach (var scriptFile in scripts)
 			{
-				var scriptNumber = ToInt(scriptFile.Name);
+				var scriptNumber = ToDecimal(scriptFile.Name);
 				if (!dbScriptNumbers.Contains(scriptNumber))
 				{
 					PrintScriptItemInfo(scriptFile);
@@ -338,10 +338,10 @@ namespace DbScriptomate
 			Console.WriteLine();
 		}
 
-		private int ToInt(string filename)
+		private decimal ToDecimal(string filename)
 		{
-			var value = _sequenceRegex.Match(filename).Groups[1].Captures[0].Value;
-			var num = Convert.ToInt32(value);
+			var value = _sequenceRegex.Match(filename).Groups[1].Value;
+			var num = Convert.ToDecimal(value);
 			return num;
 		}
 
