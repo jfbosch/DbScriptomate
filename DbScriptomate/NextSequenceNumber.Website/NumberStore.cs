@@ -34,6 +34,8 @@ namespace NextSequenceNumber.Service
 			var query = tableRef.CreateQuery<SequenceEntity>();
 			var lastEntity = query.Where(o => o.PartitionKey == key).FirstOrDefault();
 
+			var concurrencyTag = lastEntity.ETag;
+
 			var lastNumber = "00000";
 			if (lastEntity != null)
 			{
@@ -53,6 +55,7 @@ namespace NextSequenceNumber.Service
 			
 			// save back to table
 			lastEntity.Number = nextNumber;
+			lastEntity.ETag = concurrencyTag;
 			tableRef.Execute(TableOperation.InsertOrReplace(lastEntity));
 
 			return nextNumber;
