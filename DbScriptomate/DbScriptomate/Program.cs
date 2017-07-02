@@ -41,6 +41,8 @@ namespace DbScriptomate
 			Console.WriteLine(Environment.NewLine);
 			Console.WriteLine("Setup your database with the required Function, Table and Stored Procedure to let DbScriptomate manage your migrations.");
 			Console.WriteLine("usage: /SetupDb");
+			Console.WriteLine(Environment.NewLine);
+			Console.WriteLine("To let DbScriptomate console app connect directly to Azure table storage, add the app setting GoDirectToTableStorage as true, and the connection string to the storage account in the AzureStorageAddress appsetting.");
 		}
 
 

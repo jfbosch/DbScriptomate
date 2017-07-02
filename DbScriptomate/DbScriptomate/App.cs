@@ -1,18 +1,18 @@
 ﻿using System;
-using System.Linq;
-using System.Configuration;
-using System.IO;
-using NextSequenceNumber.Contracts;
-using System.Text.RegularExpressions;
 using System.Collections.Generic;
-using Microsoft.SqlServer.Management.Common;
+using System.Configuration;
 using System.Data.SqlClient;
-using System.Net.Http;
-using ServiceStack.ServiceClient.Web;
-using Microsoft.SqlServer.Management.Smo;
-using System.Text;
-using ServiceStack.Text;
 using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
+using Microsoft.SqlServer.Management.Common;
+using Microsoft.SqlServer.Management.Smo;
+using NextSequenceNumber.Contracts;
+using ServiceStack.ServiceClient.Web;
+using ServiceStack.Text;
 
 namespace DbScriptomate
 {
@@ -279,8 +279,8 @@ namespace DbScriptomate
 			Console.WriteLine("2) Detect missing scripts in DB");
 			Console.WriteLine("3) Setup your Database for DbScriptomate");
 			var input = Console.ReadKey();
-			
-            Console.Clear();
+
+			Console.Clear();
 			switch (input.KeyChar)
 			{
 				case '1':
@@ -295,16 +295,45 @@ namespace DbScriptomate
 			}
 		}
 
-		private GetNextNumberResponse GetNextSequenceNumber(string key, bool useLocal=false)
+		private GetNextNumberResponse GetNextSequenceNumber(string key, bool useLocal = false)
 		{
-		    if (useLocal)
-		    {
-		        return new GetNextNumberResponse 
-                {
-		            ForKey = key,
-		            NextSequenceNumber = DateTime.UtcNow.ToString("yyMMddHHmmss")
-		        };
-		    }
+			bool goDirectToTableStorage = false;
+			goDirectToTableStorage = bool.TryParse(ConfigurationManager.AppSettings["GoDirectToTableStorage"], out goDirectToTableStorage);
+
+			if (goDirectToTableStorage)
+			{
+				return GetFromTableStorageDirectly(key);
+			}
+			else // either local based on date time, or remote web api service
+			{
+				if (useLocal)
+				{
+					return new GetNextNumberResponse
+					{
+						ForKey = key,
+						NextSequenceNumber = DateTime.UtcNow.ToString("yyMMddHHmmss")
+					};
+				}
+				else
+				{
+					return GetFRomRemoteService(key);
+				}
+			}
+		}
+
+		private GetNextNumberResponse GetFromTableStorageDirectly(string key)
+		{
+			var response = new GetNextNumberResponse
+			{
+				ForKey = key,
+			};
+
+			response.NextSequenceNumber = TableStorageNumberStore.GetNextSequenceNumber(key);
+			return response;
+		}
+
+		private static GetNextNumberResponse GetFRomRemoteService(string key)
+		{
 			string url = (string)new AppSettingsReader().GetValue("NextSequenceNumberServiceUrl", typeof(string));
 			if (url.Contains("api"))
 			{
@@ -318,6 +347,7 @@ namespace DbScriptomate
 					return new GetNextNumberResponse() { NextSequenceNumber = value, ForKey = key };
 				}
 			}
+
 			using (var client = new JsonServiceClient(url))
 			{
 				var response = client.Post<GetNextNumberResponse>(new GetNextNumber { ForKey = key });

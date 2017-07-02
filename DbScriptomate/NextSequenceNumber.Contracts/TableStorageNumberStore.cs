@@ -1,19 +1,14 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Web;
-using System.Web.Http;
+﻿using System.Linq;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
 
-namespace NextSequenceNumber.Service
+namespace NextSequenceNumber.Contracts
 {
-	internal static class NumberStore
+	public static class TableStorageNumberStore
 	{
 		private static readonly object _locker = new object();
 
-		internal static string GetNextSequenceNumber(string key)
+		public static string GetNextSequenceNumber(string key)
 		{
 			lock (_locker)
 			{
@@ -26,7 +21,7 @@ namespace NextSequenceNumber.Service
 			CloudStorageAccount storageAccount =
 				CloudStorageAccount.Parse(System.Configuration.ConfigurationManager.AppSettings.Get("AzureStorageAddress"));
 
-			
+
 			var tableClient = storageAccount.CreateCloudTableClient();
 			var tableRef = tableClient.GetTableReference(System.Configuration.ConfigurationManager.AppSettings.Get("AzureTableName"));
 			tableRef.CreateIfNotExists();
@@ -34,7 +29,7 @@ namespace NextSequenceNumber.Service
 			var query = tableRef.CreateQuery<SequenceEntity>();
 			var lastEntity = query.Where(o => o.PartitionKey == key).FirstOrDefault();
 
-			var concurrencyTag = lastEntity.ETag;
+			var concurrencyTag = lastEntity?.ETag;
 
 			var lastNumber = "00000";
 			if (lastEntity != null)
@@ -43,7 +38,7 @@ namespace NextSequenceNumber.Service
 			}
 			else
 			{
-				lastEntity = new SequenceEntity(){PartitionKey=key,RowKey="1"};
+				lastEntity = new SequenceEntity() { PartitionKey = key, RowKey = "1" };
 			}
 
 			int number;
@@ -52,7 +47,7 @@ namespace NextSequenceNumber.Service
 
 			number++;
 			string nextNumber = number.ToString("00000");
-			
+
 			// save back to table
 			lastEntity.Number = nextNumber;
 			lastEntity.ETag = concurrencyTag;

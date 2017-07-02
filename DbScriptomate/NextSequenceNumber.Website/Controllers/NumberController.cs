@@ -5,7 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Web;
 using System.Web.Http;
-using NextSequenceNumber.Service;
+using NextSequenceNumber.Contracts;
 
 namespace NextSequenceNumber.Website.Controllers
 {
@@ -25,7 +25,7 @@ namespace NextSequenceNumber.Website.Controllers
 	        {
 		        return "Invalid password. Please try again";
 	        }
-	        return NumberStore.GetNextSequenceNumber(key);
+	        return TableStorageNumberStore.GetNextSequenceNumber(key);
         }
 
 		/*// POST api/number
