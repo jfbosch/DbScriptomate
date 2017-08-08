@@ -38,6 +38,13 @@ And it is also what will be run by your CI server during an automated deployment
 It has both an interactive and commandline mode.
 
 This also has the option to connect directly to an Azure Table Storage account, in which case you need no server deployment or *DbScriptomate.NextSequenceNumber.Service.exe*.
+To connect directly to Table Storage, add the following app settings to your DbScriptomate.exe.config:
+```csharp
+  <add key="GoDirectToTableStorage" value="true"/>
+  <add key="AzureStorageAddress" value="<connectionstring>"/>
+  <add key="AzureTableName" value="<YourTableName>"/>
+```
+
 
 * We also have a table we create in your DB (dbo.DbScripts). This stores the information of each script that has been applied to that specific DB. Not the actual content of the script, but just the meta information. Script number, date applied, author initials, login used, etc.
 
