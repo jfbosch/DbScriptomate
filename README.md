@@ -86,5 +86,5 @@ Some configuration that can be used :
 ```
 
 * GenerateDbObjectsOnNewScript - sets if the db object generation should be called after a new script has been generated
-* GenerateDbObjectsThreadCount - sets the number of threads to use when generating db object scripts (some schemas are large and could benefit from some multi-threadedness to speed up generation)
+* GenerateDbObjectsThreadCount - sets the number of threads to use when generating db object scripts (some databases are large and dbscriptomate could benefit from some multi-threadedness to speed up generation)
 * GenerateDbObjectsIgnoreSchemas - a delimited set of schemas to ignore when generating db object scripts
