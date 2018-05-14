@@ -75,8 +75,8 @@ Support has been added to generate scripts for all db objects (tables, views and
 
 Why? We needed a quick and dirty way to track schema changes. 
 
-We've added an additional option (as well as an inline option after generating a new script) that will go and upsert a .sql file for every db object in the database.
-These files can then be committed and git can be used to track changes.
+We've added an additional option (as well as an inline option after generating a new script) that will generate and upsert a *.sql* file for every db object in the database.
+These files can then be committed and git can be used to track historical changes.
 
 Some configuration that can be used : 
 ```csharp
