@@ -54,7 +54,7 @@ Why does it exist?
 We were running in an environment where we make extensive use of SQL Merge Replication. For those who have tried this, you will know that replication puts a number of additional constraints on what you can do to a database.
 We haven't found an existing tool that fit our needs. (I'm not going to recap all the reasons here or tools we investigated)
 
-However, we have used it for many other projects  where there was no replication involved. It’s just a nice workflow.
+However, we have used it for many other projects  where there was no replication involved. Itâ€™s just a nice workflow.
 
 What we want to add
 -------------------
@@ -67,3 +67,24 @@ Examples
 Example of using *DbScriptomate.exe* in commandline mode in your CI server during test runs or deployments to apply all missing scripts to the target database.
 
 DbScriptomate.exe /ApplyScripts "<DbFolderName>" "Server=tcp:<connectionstring>" "System.Data.SqlClient"'
+  
+  
+Update (2018-05-14)
+----------------
+Support has been added to generate scripts for all db objects (tables, views and programmability)
+
+Why? We needed a quick and dirty way to track schema changes. 
+
+We've added an additional option (as well as an inline option after generating a new script) that will go and upsert a .sql file for every db object in the database.
+These files can then be committed and git can be used to track changes.
+
+Some configuration that can be used : 
+```csharp
+<add key="GenerateDbObjectsOnNewScript" value="true"/>
+<add key="GenerateDbObjectsThreadCount" value="8"/>
+<add key="GenerateDbObjectsIgnoreSchemas" value="bak,sys"/>
+```
+
+* GenerateDbObjectsOnNewScript - sets if the db object generation should be called after a new script has been generated
+* GenerateDbObjectsThreadCount - sets the number of threads to use when generating db object scripts (some schemas are large and could benefit from some multi-threadedness to speed up generation)
+* GenerateDbObjectsIgnoreSchemas - a delimited set of schemas to ignore when generating db object scripts
