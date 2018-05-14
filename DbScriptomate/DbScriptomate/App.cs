@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Configuration;
 using System.Data.SqlClient;
 using System.Globalization;
@@ -8,6 +9,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Microsoft.SqlServer.Management.Common;
 using Microsoft.SqlServer.Management.Smo;
 using NextSequenceNumber.Contracts;
@@ -278,6 +280,7 @@ namespace DbScriptomate
 			Console.WriteLine("1) Detect last script number and generate new script template");
 			Console.WriteLine("2) Detect missing scripts in DB");
 			Console.WriteLine("3) Setup your Database for DbScriptomate");
+			Console.WriteLine("4) Generate Db Objects");
 			var input = Console.ReadKey();
 
 			Console.Clear();
@@ -291,6 +294,9 @@ namespace DbScriptomate
 					break;
 				case '3':
 					InitialSetup();
+					break;
+				case '4':
+					GenerateDbObjects(runArgs,dbDir);
 					break;
 			}
 		}
@@ -367,6 +373,17 @@ namespace DbScriptomate
 			Console.WriteLine("using {0} next", runArgs.ScriptNumber);
 			Console.WriteLine("created file: {0}\\{1}", dbDir.Name, newScript);
 			Console.WriteLine();
+
+			var shouldDenerateDbObjects = false;
+			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldDenerateDbObjects);
+
+			if (shouldDenerateDbObjects)
+			{
+				Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsOnNewScript)");
+				Console.WriteLine("Your script file is available for you to carry on with while this process is busy");
+				GenerateDbObjects(runArgs, dbDir);
+			}
+
 		}
 
 		private decimal ToDecimal(string filename)
@@ -424,6 +441,188 @@ namespace DbScriptomate
 						break;
 					}
 			}
+		}
+
+		private void GenerateDbObjects(RunArguments runArgs, DirectoryInfo dbDir)
+		{
+			var startTime = DateTime.Now;
+			var dbConnection = LetUserPickDbConnection(dbDir.Name);
+			var dbConnectionString = dbConnection.ConnectionString;
+			Console.WriteLine("Generating Db Object files into .\\DbObjects");
+
+			DirectoryInfo rootDir = dbDir;
+			var targetDir = rootDir.CreateSubdirectory("DbObjects");
+			rootDir.CreateSubdirectory("DbObjects\\Tables");
+			rootDir.CreateSubdirectory("DbObjects\\Views");
+			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedTableTypes");
+			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedTypes");
+			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedDataTypes");
+			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedFunctions");
+			rootDir.CreateSubdirectory("DbObjects\\Programmability\\StoredProcedures");
+
+			var ignoreValue = System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsIgnoreSchemas");
+			if (string.IsNullOrWhiteSpace(ignoreValue)) ignoreValue = string.Empty;
+
+			var ignoreSchemas = ignoreValue
+				.Split(new[] {" ", ",", ";"}, StringSplitOptions.RemoveEmptyEntries)
+				.ToList();
+
+			
+			var allTasks = new List<Task>();
+			allTasks.Add(Task.Run(() =>
+			{
+				var sqlConnection = new SqlConnection(dbConnectionString);
+				var connection = new ServerConnection(sqlConnection);
+				var server = new Server(connection);
+				var db = server.Databases[sqlConnection.Database];
+				var spScripter = new Scripter(server);
+				spScripter.Options.ScriptDrops = false;
+				spScripter.Options.IncludeHeaders = false;
+
+				var count = 0;
+				foreach (ScriptSchemaObjectBase e in db.UserDefinedTableTypes)
+				{
+					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedTableTypes", ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(l))
+						count++;
+				}
+				foreach (ScriptSchemaObjectBase e in db.UserDefinedTypes)
+				{
+					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedTypes", ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(l))
+						count++;
+				}
+				foreach (ScriptSchemaObjectBase e in db.UserDefinedDataTypes)
+				{
+					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedDataTypes", ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(l))
+						count++;
+				}
+				foreach (ScriptSchemaObjectBase e in db.UserDefinedFunctions)
+				{
+					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedFunctions", ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(l))
+						count++;
+				}
+				foreach (StoredProcedure e in db.StoredProcedures)
+				{
+					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\StoredProcedures", ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(l))
+						count++;
+				}
+
+				Console.WriteLine($"Programmability Done ({count} objects)");
+			}));
+
+
+			allTasks.Add(Task.Run(() =>
+			{
+				var sqlConnection = new SqlConnection(dbConnectionString);
+				var connection = new ServerConnection(sqlConnection);
+				var viewServer = new Server(connection);
+				var viewDb = viewServer.Databases[sqlConnection.Database];
+				var viewScripter = new Scripter(viewServer);
+				viewScripter.Options.ScriptDrops = false;
+				viewScripter.Options.IncludeHeaders = false;
+
+				var viewCount = 0;
+				foreach (View e in viewDb.Views)
+				{
+					var location = GenerateDbObject(viewScripter, e, false, targetDir, "Views", ignoreSchemas);
+					if(!string.IsNullOrWhiteSpace(location))
+						viewCount++;
+				}
+
+				Console.WriteLine($"Views Done ({viewCount} views)");
+			}));
+
+
+			var tempSqlConnection = new SqlConnection(dbConnectionString);
+			var tempConnection = new ServerConnection(tempSqlConnection);
+			var tableNames = new List<KeyValuePair<string, string>>();
+			var tableServer = new Server(tempConnection);
+			var tableDb = tableServer.Databases[tempSqlConnection.Database];
+			foreach (Table t in tableDb.Tables)
+			{
+				tableNames.Add(new KeyValuePair<string, string>(t.Schema, t.Name));
+			}
+			
+			var threadCount = 5;
+			int.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsThreadCount"), out threadCount);
+			var batchCount = tableNames.Count / threadCount;
+
+			var tempCount = 0;
+			var tableTasks = new List<Task>();
+			Console.WriteLine($"Starting {threadCount} threads to generate {tableNames.Count} tables in {batchCount} batches");
+			for (var i = 0; i <= threadCount; i++)
+			{
+				var taskTables = tableNames.Skip(tempCount).Take(batchCount).ToList();
+				tempCount += batchCount;
+				
+				tableTasks.Add(Task.Run(() =>
+				{
+					var tableCount = 0;
+					var start = DateTime.Now;
+					var sqlConnection = new SqlConnection(dbConnectionString);
+					var connection = new ServerConnection(sqlConnection);
+					
+					var taskServer = new Server(connection);
+					var taskDb = tableServer.Databases[sqlConnection.Database];
+					var taskScripter = new Scripter(taskServer);
+					taskScripter.Options.ScriptDrops = false;
+					taskScripter.Options.IncludeHeaders = false;
+					taskScripter.Options.Indexes = true;
+
+					foreach (Table e in taskDb.Tables)
+					{
+						if (!taskTables.Any(o => o.Key == e.Schema && o.Value == e.Name)) continue;
+
+						GenerateDbObject(taskScripter, e, false, targetDir, "Tables", ignoreSchemas);
+						tableCount++;
+					}
+
+					var end = DateTime.Now;
+					Console.WriteLine($"Tables Done (Batch : {i}, Tables : {tableCount}, Time : {end.Subtract(start).TotalSeconds}s)");
+				}));
+
+			}
+			Task.WaitAll(allTasks.ToArray());
+			Task.WaitAll(tableTasks.ToArray());
+
+			var endTime = DateTime.Now;
+			Console.WriteLine($"Total time : {endTime.Subtract(startTime).TotalSeconds} seconds");
+		}
+
+		private string GenerateDbObject(Scripter scripter,
+			ScriptSchemaObjectBase e,
+			bool isSystemObject,
+			DirectoryInfo targetDir,
+			string locationPart,
+			IEnumerable<string> ignoreSchemas)
+		{
+			var name = e.Name;
+			var schema = e.Schema;
+			if (ignoreSchemas.Contains(schema))
+			{
+				return null;
+			}
+
+
+			var urn = new[] { e.Urn };
+			if (isSystemObject != false) return null;
+
+			var sc = scripter.Script(urn);
+
+			var sb = new StringBuilder();
+			foreach (var st in sc)
+			{
+				sb.Append(" ");
+				sb.Append(st);
+			}
+
+			var location = $"{targetDir.FullName}\\{locationPart}\\{schema}.{name}.sql";
+			System.IO.File.WriteAllText(location, sb.ToString());
+			return location;
 		}
 	}
 }
