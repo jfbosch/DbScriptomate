@@ -620,8 +620,9 @@ namespace DbScriptomate
 				sb.Append(st);
 			}
 
+			var value = sb.ToString().Trim(new[] {'\r', '\n'});
 			var location = $"{targetDir.FullName}\\{locationPart}\\{schema}.{name}.sql";
-			System.IO.File.WriteAllText(location, sb.ToString());
+			System.IO.File.WriteAllText(location, value);
 			return location;
 		}
 	}
