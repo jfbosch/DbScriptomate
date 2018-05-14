@@ -467,135 +467,220 @@ namespace DbScriptomate
 				.Split(new[] {" ", ",", ";"}, StringSplitOptions.RemoveEmptyEntries)
 				.ToList();
 
-			
-			var allTasks = new List<Task>();
-			allTasks.Add(Task.Run(() =>
-			{
-				var sqlConnection = new SqlConnection(dbConnectionString);
-				var connection = new ServerConnection(sqlConnection);
-				var server = new Server(connection);
-				var db = server.Databases[sqlConnection.Database];
-				var spScripter = new Scripter(server);
-				spScripter.Options.ScriptDrops = false;
-				spScripter.Options.IncludeHeaders = false;
+			var threadCount = 5;
+			int.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsThreadCount"), out threadCount);
 
-				var count = 0;
-				foreach (ScriptSchemaObjectBase e in db.UserDefinedTableTypes)
-				{
-					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedTableTypes", ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(l))
-						count++;
-				}
-				foreach (ScriptSchemaObjectBase e in db.UserDefinedTypes)
-				{
-					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedTypes", ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(l))
-						count++;
-				}
-				foreach (ScriptSchemaObjectBase e in db.UserDefinedDataTypes)
-				{
-					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedDataTypes", ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(l))
-						count++;
-				}
-				foreach (ScriptSchemaObjectBase e in db.UserDefinedFunctions)
-				{
-					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\UserDefinedFunctions", ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(l))
-						count++;
-				}
-				foreach (StoredProcedure e in db.StoredProcedures)
-				{
-					var l = GenerateDbObject(spScripter, e, false, targetDir, "Programmability\\StoredProcedures", ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(l))
-						count++;
-				}
-
-				Console.WriteLine($"Programmability Done ({count} objects)");
-			}));
-
-
-			allTasks.Add(Task.Run(() =>
-			{
-				var sqlConnection = new SqlConnection(dbConnectionString);
-				var connection = new ServerConnection(sqlConnection);
-				var viewServer = new Server(connection);
-				var viewDb = viewServer.Databases[sqlConnection.Database];
-				var viewScripter = new Scripter(viewServer);
-				viewScripter.Options.ScriptDrops = false;
-				viewScripter.Options.IncludeHeaders = false;
-
-				var viewCount = 0;
-				foreach (View e in viewDb.Views)
-				{
-					var location = GenerateDbObject(viewScripter, e, false, targetDir, "Views", ignoreSchemas);
-					if(!string.IsNullOrWhiteSpace(location))
-						viewCount++;
-				}
-
-				Console.WriteLine($"Views Done ({viewCount} views)");
-			}));
-
-
-			var tempSqlConnection = new SqlConnection(dbConnectionString);
-			var tempConnection = new ServerConnection(tempSqlConnection);
+			Console.WriteLine("Getting schema information");
+			var globalConnection = new SqlConnection(dbConnectionString);
+			var globalServerConnection = new ServerConnection(globalConnection);
 			var tableNames = new List<KeyValuePair<string, string>>();
-			var tableServer = new Server(tempConnection);
-			var tableDb = tableServer.Databases[tempSqlConnection.Database];
-			foreach (Table t in tableDb.Tables)
+			var viewNames = new List<KeyValuePair<string, string>>();
+			var globalServer = new Server(globalServerConnection);
+			var globalDb = globalServer.Databases[globalConnection.Database];
+			
+			foreach (Table t in globalDb.Tables)
 			{
 				tableNames.Add(new KeyValuePair<string, string>(t.Schema, t.Name));
 			}
+			Console.WriteLine($"Tables : {tableNames.Count}");
 			
-			var threadCount = 5;
-			int.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsThreadCount"), out threadCount);
-			var batchCount = tableNames.Count / threadCount;
-
-			var tempCount = 0;
-			var tableTasks = new List<Task>();
-			Console.WriteLine($"Starting {threadCount} threads to generate {tableNames.Count} tables in {batchCount} batches");
-			for (var i = 0; i <= threadCount; i++)
+			foreach (View t in globalDb.Views)
 			{
-				var taskTables = tableNames.Skip(tempCount).Take(batchCount).ToList();
-				tempCount += batchCount;
-				
-				tableTasks.Add(Task.Run(() =>
-				{
-					var tableCount = 0;
-					var start = DateTime.Now;
-					var sqlConnection = new SqlConnection(dbConnectionString);
-					var connection = new ServerConnection(sqlConnection);
-					
-					var taskServer = new Server(connection);
-					var taskDb = tableServer.Databases[sqlConnection.Database];
-					var taskScripter = new Scripter(taskServer);
-					taskScripter.Options.ScriptDrops = false;
-					taskScripter.Options.IncludeHeaders = false;
-					taskScripter.Options.Indexes = true;
-
-					foreach (Table e in taskDb.Tables)
-					{
-						if (!taskTables.Any(o => o.Key == e.Schema && o.Value == e.Name)) continue;
-
-						GenerateDbObject(taskScripter, e, false, targetDir, "Tables", ignoreSchemas);
-						tableCount++;
-					}
-
-					var end = DateTime.Now;
-					Console.WriteLine($"Tables Done (Batch : {i}, Tables : {tableCount}, Time : {end.Subtract(start).TotalSeconds}s)");
-				}));
-
+				viewNames.Add(new KeyValuePair<string, string>(t.Schema, t.Name));
 			}
-			Task.WaitAll(allTasks.ToArray());
-			Task.WaitAll(tableTasks.ToArray());
+			Console.WriteLine($"Views : {viewNames.Count}");
 
+
+			var allTasks = new List<Task>();
+			allTasks.Add(Task.Run(() =>
+			{
+				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedDataTypes, null,targetDir,ignoreSchemas,null,false);
+			}));
+			allTasks.Add(Task.Run(() =>
+			{
+				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedTableTypes, null, targetDir, ignoreSchemas, null, false);
+			}));
+			allTasks.Add(Task.Run(() =>
+			{
+				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedTypes, null, targetDir, ignoreSchemas, null, false);
+			}));
+			allTasks.Add(Task.Run(() =>
+			{
+				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedFunctions, null, targetDir, ignoreSchemas, null, false);
+			}));
+			allTasks.Add(Task.Run(() =>
+			{
+				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_StoredProcedures, null, targetDir, ignoreSchemas, null, false);
+			}));
+
+			Task.WaitAll(allTasks.ToArray());
+
+			GenerateDbObjectsInThreadsAndWait(viewNames, threadCount, dbConnectionString, targetDir, ignoreSchemas, GenerateDbObjectsType.Views, false);
+			GenerateDbObjectsInThreadsAndWait(tableNames,threadCount,dbConnectionString,targetDir,ignoreSchemas,GenerateDbObjectsType.Tables,true);
+			
 			var endTime = DateTime.Now;
 			Console.WriteLine($"Total time : {endTime.Subtract(startTime).TotalSeconds} seconds");
 		}
 
+		private void GenerateDbObjectsInThreadsAndWait(List<KeyValuePair<string, string>> dbObjects,
+			int threadCount,
+			string dbConnectionString,
+			DirectoryInfo targetDir,
+			List<string> ignoreSchemas,
+			GenerateDbObjectsType generateDbObjectsType,
+			bool includeIndexes)
+		{
+			var batchCount = dbObjects.Count / threadCount;
+			var count = 0;
+			var tasks = new List<Task>();
+
+			Console.WriteLine($"Starting {threadCount} threads to generate {dbObjects.Count} {generateDbObjectsType} in {batchCount} batches");
+
+			for (var i = 0; i <= threadCount; i++)
+			{
+				var names = dbObjects.Skip(count).Take(batchCount).ToList();
+				count += batchCount;
+
+				var index = i;
+				tasks.Add(Task.Run(() => GenerateDbObjects(index,
+					dbConnectionString,
+					generateDbObjectsType,
+					names,
+					targetDir,
+					ignoreSchemas,
+					null,
+					includeIndexes)));
+			}
+
+			Task.WaitAll(tasks.ToArray());
+		}
+
+		private enum GenerateDbObjectsType
+		{
+			Tables,
+			Views,
+			Programmability_UserDefinedTableTypes,
+			Programmability_UserDefinedTypes,
+			Programmability_UserDefinedDataTypes,
+			Programmability_UserDefinedFunctions,
+			Programmability_StoredProcedures
+		}
+
+		private int GenerateDbObjects(
+			int index,
+			string dbConnectionString,
+			GenerateDbObjectsType generateType,
+			List<KeyValuePair<string, string>> dbObjects,
+			DirectoryInfo targetDir,
+			List<string> ignoreSchemas,
+			string locationPart,
+			bool includeIndexes)
+		{
+			var start = DateTime.Now;
+			using (var sqlConnection = new SqlConnection(dbConnectionString))
+			{
+				var connection = new ServerConnection(sqlConnection);
+				var server = new Server(connection);
+				var database = server.Databases[sqlConnection.Database];
+				var scripter = new Scripter(server)
+				{
+					Options =
+					{
+						ScriptDrops = false,
+						IncludeHeaders = false,
+						Indexes = includeIndexes
+					}
+				};
+
+				var count = 0;
+
+				var items = GetDbObjects(generateType, database);
+
+				if (string.IsNullOrWhiteSpace(locationPart))
+					locationPart = generateType.ToString();
+
+				locationPart = locationPart.Replace("_", "\\");
+
+				foreach (ScriptSchemaObjectBase e in items)
+				{
+					if (dbObjects != null && !dbObjects.Any(o => o.Key == e.Schema && o.Value == e.Name)) continue;
+
+					var location = GenerateDbObject(scripter, e, targetDir, locationPart, ignoreSchemas);
+					if (!string.IsNullOrWhiteSpace(location))
+						count++;
+				}
+
+				var end = DateTime.Now;
+				Console.WriteLine(
+					$"{locationPart} Done (Batch : {index}, Objects : {count}, Time : {end.Subtract(start).TotalSeconds}s)");
+				return count;
+			}
+		}
+
+		private static IEnumerable<ScriptSchemaObjectBase> GetDbObjects(GenerateDbObjectsType generateType, Database database)
+		{
+			var items = new List<ScriptSchemaObjectBase>();
+			switch (generateType)
+			{
+				case GenerateDbObjectsType.Tables:
+					foreach (ScriptSchemaObjectBase e in database.Tables)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Views:
+					foreach (ScriptSchemaObjectBase e in database.Views)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Programmability_UserDefinedTableTypes:
+					foreach (ScriptSchemaObjectBase e in database.UserDefinedTableTypes)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Programmability_UserDefinedTypes:
+					foreach (ScriptSchemaObjectBase e in database.UserDefinedTypes)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Programmability_UserDefinedDataTypes:
+					foreach (ScriptSchemaObjectBase e in database.UserDefinedDataTypes)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Programmability_UserDefinedFunctions:
+					foreach (ScriptSchemaObjectBase e in database.UserDefinedFunctions)
+					{
+						items.Add(e);
+					}
+
+					break;
+				case GenerateDbObjectsType.Programmability_StoredProcedures:
+					foreach (StoredProcedure e in database.StoredProcedures)
+					{
+						items.Add(e);
+					}
+
+					break;
+				default:
+					throw new ArgumentOutOfRangeException(nameof(generateType), generateType, null);
+			}
+
+			return items;
+		}
+
 		private string GenerateDbObject(Scripter scripter,
 			ScriptSchemaObjectBase e,
-			bool isSystemObject,
+			//bool isSystemObject,
 			DirectoryInfo targetDir,
 			string locationPart,
 			IEnumerable<string> ignoreSchemas)
@@ -609,7 +694,11 @@ namespace DbScriptomate
 
 
 			var urn = new[] { e.Urn };
-			if (isSystemObject != false) return null;
+			var table = e as Table;
+			var view = e as View;
+			if ((table != null && table.IsSystemObject)
+				|| (view != null && view.IsSystemObject)
+				) return null;
 
 			var sc = scripter.Script(urn);
 
