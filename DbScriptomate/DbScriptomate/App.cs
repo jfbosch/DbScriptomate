@@ -119,6 +119,16 @@ namespace DbScriptomate
 				throw new InvalidArgumentException("Invalid execution path.");
 
 			ApplyMissingScripts(runArgs, conSettings, scripts);
+
+			var shouldGenereateDbObjects = false;
+			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldGenereateDbObjects);
+			if (shouldGenereateDbObjects && runArgs.RunMode == RunMode.Interactive)
+			{
+				Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsOnNewScript)");
+				Console.WriteLine("Your script file is available for you to carry on with while this process is busy");
+				runArgs.DbConnectionString = conSettings.ConnectionString;
+				GenerateDbObjects(runArgs, dbDir);
+			}
 		}
 
 		private ConnectionStringSettings LetUserPickDbConnection(
@@ -374,10 +384,10 @@ namespace DbScriptomate
 			Console.WriteLine("created file: {0}\\{1}", dbDir.Name, newScript);
 			Console.WriteLine();
 
-			var shouldDenerateDbObjects = false;
-			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldDenerateDbObjects);
+			var shouldGenereateDbObjects = false;
+			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldGenereateDbObjects);
 
-			if (shouldDenerateDbObjects)
+			if (shouldGenereateDbObjects)
 			{
 				Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsOnNewScript)");
 				Console.WriteLine("Your script file is available for you to carry on with while this process is busy");
@@ -446,95 +456,67 @@ namespace DbScriptomate
 		private void GenerateDbObjects(RunArguments runArgs, DirectoryInfo dbDir)
 		{
 			var startTime = DateTime.Now;
-			var dbConnection = LetUserPickDbConnection(dbDir.Name);
-			var dbConnectionString = dbConnection.ConnectionString;
-			Console.WriteLine("Generating Db Object files into .\\DbObjects");
+			Console.WriteLine("Getting schema information");
 
-			DirectoryInfo rootDir = dbDir;
-			var targetDir = rootDir.CreateSubdirectory("DbObjects");
-			rootDir.CreateSubdirectory("DbObjects\\Tables");
-			rootDir.CreateSubdirectory("DbObjects\\Views");
-			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedTableTypes");
-			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedTypes");
-			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedDataTypes");
-			rootDir.CreateSubdirectory("DbObjects\\Programmability\\UserDefinedFunctions");
-			rootDir.CreateSubdirectory("DbObjects\\Programmability\\StoredProcedures");
+			var dbConnectionString = runArgs.DbConnectionString;
+			if(string.IsNullOrWhiteSpace(dbConnectionString))
+				dbConnectionString = LetUserPickDbConnection(dbDir.Name).ConnectionString;
 
 			var ignoreValue = System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsIgnoreSchemas");
 			if (string.IsNullOrWhiteSpace(ignoreValue)) ignoreValue = string.Empty;
-
 			var ignoreSchemas = ignoreValue
-				.Split(new[] {" ", ",", ";"}, StringSplitOptions.RemoveEmptyEntries)
+				.Split(new[] { " ", ",", ";" }, StringSplitOptions.RemoveEmptyEntries)
 				.ToList();
 
-			var threadCount = 5;
-			int.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsThreadCount"), out threadCount);
-
-			Console.WriteLine("Getting schema information");
 			var globalConnection = new SqlConnection(dbConnectionString);
 			var globalServerConnection = new ServerConnection(globalConnection);
-			var tableNames = new List<KeyValuePair<string, string>>();
-			var viewNames = new List<KeyValuePair<string, string>>();
 			var globalServer = new Server(globalServerConnection);
 			var globalDb = globalServer.Databases[globalConnection.Database];
-			
-			foreach (Table t in globalDb.Tables)
+
+			DirectoryInfo rootDir = dbDir;
+			var targetDir = rootDir.CreateSubdirectory("DbObjects");
+			var typeDbDobjects = new Dictionary<GenerateDbObjectsType, ICollection<ScriptSchemaObjectBase>>();
+
+			// create folder structure and get dbobjects for each type
+			foreach (var e in Enum.GetNames(typeof(GenerateDbObjectsType)))
 			{
-				tableNames.Add(new KeyValuePair<string, string>(t.Schema, t.Name));
+				var location = e.Replace("_", "\\");
+				rootDir.CreateSubdirectory($"DbObjects\\{location}");
+				var en = (GenerateDbObjectsType) Enum.Parse(typeof(GenerateDbObjectsType), e);
+				var dbobjects = GetDbObjects(en, globalDb, ignoreSchemas).ToList();
+				typeDbDobjects.Add(en, dbobjects);
+				Console.WriteLine($"{location} : {dbobjects.Count}");
 			}
-			Console.WriteLine($"Tables : {tableNames.Count}");
-			
-			foreach (View t in globalDb.Views)
+
+			foreach (var e in typeDbDobjects)
 			{
-				viewNames.Add(new KeyValuePair<string, string>(t.Schema, t.Name));
+				var names = e.Value.Select(o => new KeyValuePair<string, string>(o.Schema, o.Name)).ToList();
+				GenerateDbObjectsInThreadsAndWait(e.Key, names, dbConnectionString, targetDir, ignoreSchemas);
 			}
-			Console.WriteLine($"Views : {viewNames.Count}");
-
-
-			var allTasks = new List<Task>();
-			allTasks.Add(Task.Run(() =>
-			{
-				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedDataTypes, null,targetDir,ignoreSchemas,null,false);
-			}));
-			allTasks.Add(Task.Run(() =>
-			{
-				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedTableTypes, null, targetDir, ignoreSchemas, null, false);
-			}));
-			allTasks.Add(Task.Run(() =>
-			{
-				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedTypes, null, targetDir, ignoreSchemas, null, false);
-			}));
-			allTasks.Add(Task.Run(() =>
-			{
-				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_UserDefinedFunctions, null, targetDir, ignoreSchemas, null, false);
-			}));
-			allTasks.Add(Task.Run(() =>
-			{
-				GenerateDbObjects(1, dbConnectionString, GenerateDbObjectsType.Programmability_StoredProcedures, null, targetDir, ignoreSchemas, null, false);
-			}));
-
-			Task.WaitAll(allTasks.ToArray());
-
-			GenerateDbObjectsInThreadsAndWait(viewNames, threadCount, dbConnectionString, targetDir, ignoreSchemas, GenerateDbObjectsType.Views, false);
-			GenerateDbObjectsInThreadsAndWait(tableNames,threadCount,dbConnectionString,targetDir,ignoreSchemas,GenerateDbObjectsType.Tables,true);
 			
 			var endTime = DateTime.Now;
 			Console.WriteLine($"Total time : {endTime.Subtract(startTime).TotalSeconds} seconds");
 		}
 
-		private void GenerateDbObjectsInThreadsAndWait(List<KeyValuePair<string, string>> dbObjects,
-			int threadCount,
+		private void GenerateDbObjectsInThreadsAndWait(
+			GenerateDbObjectsType generateDbObjectsType,
+			IReadOnlyCollection<KeyValuePair<string, string>> dbObjects,
 			string dbConnectionString,
 			DirectoryInfo targetDir,
-			List<string> ignoreSchemas,
-			GenerateDbObjectsType generateDbObjectsType,
-			bool includeIndexes)
+			List<string> ignoreSchemas)
 		{
+			var threadCount = 5;
+			int.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsThreadCount"), out threadCount);
+			if (threadCount <= 0) threadCount = 1;
+
 			var batchCount = dbObjects.Count / threadCount;
+
 			var count = 0;
 			var tasks = new List<Task>();
 
-			Console.WriteLine($"Starting {threadCount} threads to generate {dbObjects.Count} {generateDbObjectsType} in {batchCount} batches");
+			Console.WriteLine($"Starting {threadCount} threads to generate {dbObjects.Count} {generateDbObjectsType}");
+
+			var includeIndexes = generateDbObjectsType == GenerateDbObjectsType.Tables;
 
 			for (var i = 0; i <= threadCount; i++)
 			{
@@ -547,9 +529,9 @@ namespace DbScriptomate
 					generateDbObjectsType,
 					names,
 					targetDir,
-					ignoreSchemas,
 					null,
-					includeIndexes)));
+					includeIndexes,
+					ignoreSchemas)));
 			}
 
 			Task.WaitAll(tasks.ToArray());
@@ -566,15 +548,14 @@ namespace DbScriptomate
 			Programmability_StoredProcedures
 		}
 
-		private int GenerateDbObjects(
-			int index,
+		private int GenerateDbObjects(int index,
 			string dbConnectionString,
 			GenerateDbObjectsType generateType,
-			List<KeyValuePair<string, string>> dbObjects,
+			List<KeyValuePair<string, string>> dbObjectNames,
 			DirectoryInfo targetDir,
-			List<string> ignoreSchemas,
 			string locationPart,
-			bool includeIndexes)
+			bool includeIndexes,
+			List<string> ignoreSchemas)
 		{
 			var start = DateTime.Now;
 			using (var sqlConnection = new SqlConnection(dbConnectionString))
@@ -592,23 +573,16 @@ namespace DbScriptomate
 					}
 				};
 
-				var count = 0;
-
-				var items = GetDbObjects(generateType, database);
+				var dbObjects = GetDbObjects(generateType, database, ignoreSchemas);
 
 				if (string.IsNullOrWhiteSpace(locationPart))
 					locationPart = generateType.ToString();
 
 				locationPart = locationPart.Replace("_", "\\");
 
-				foreach (ScriptSchemaObjectBase e in items)
-				{
-					if (dbObjects != null && !dbObjects.Any(o => o.Key == e.Schema && o.Value == e.Name)) continue;
-
-					var location = GenerateDbObject(scripter, e, targetDir, locationPart, ignoreSchemas);
-					if (!string.IsNullOrWhiteSpace(location))
-						count++;
-				}
+				var count = dbObjects
+					.Where(e => dbObjectNames == null || dbObjectNames.Any(o => o.Key == e.Schema && o.Value == e.Name))
+					.Count(e => GenerateDbObject(scripter, e, targetDir, locationPart));
 
 				var end = DateTime.Now;
 				Console.WriteLine(
@@ -617,7 +591,9 @@ namespace DbScriptomate
 			}
 		}
 
-		private static IEnumerable<ScriptSchemaObjectBase> GetDbObjects(GenerateDbObjectsType generateType, Database database)
+		private static IEnumerable<ScriptSchemaObjectBase> GetDbObjects(GenerateDbObjectsType generateType,
+			Database database,
+			List<string> ignoreSchemas)
 		{
 			var items = new List<ScriptSchemaObjectBase>();
 			switch (generateType)
@@ -625,51 +601,66 @@ namespace DbScriptomate
 				case GenerateDbObjectsType.Tables:
 					foreach (ScriptSchemaObjectBase e in database.Tables)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
+						
 					}
-
 					break;
 				case GenerateDbObjectsType.Views:
 					foreach (ScriptSchemaObjectBase e in database.Views)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				case GenerateDbObjectsType.Programmability_UserDefinedTableTypes:
 					foreach (ScriptSchemaObjectBase e in database.UserDefinedTableTypes)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				case GenerateDbObjectsType.Programmability_UserDefinedTypes:
 					foreach (ScriptSchemaObjectBase e in database.UserDefinedTypes)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				case GenerateDbObjectsType.Programmability_UserDefinedDataTypes:
 					foreach (ScriptSchemaObjectBase e in database.UserDefinedDataTypes)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				case GenerateDbObjectsType.Programmability_UserDefinedFunctions:
 					foreach (ScriptSchemaObjectBase e in database.UserDefinedFunctions)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				case GenerateDbObjectsType.Programmability_StoredProcedures:
 					foreach (StoredProcedure e in database.StoredProcedures)
 					{
-						items.Add(e);
+						if (!ignoreSchemas.Contains(e.Schema))
+						{
+							items.Add(e);
+						}
 					}
-
 					break;
 				default:
 					throw new ArgumentOutOfRangeException(nameof(generateType), generateType, null);
@@ -678,27 +669,20 @@ namespace DbScriptomate
 			return items;
 		}
 
-		private string GenerateDbObject(Scripter scripter,
+		private bool GenerateDbObject(Scripter scripter,
 			ScriptSchemaObjectBase e,
-			//bool isSystemObject,
 			DirectoryInfo targetDir,
-			string locationPart,
-			IEnumerable<string> ignoreSchemas)
+			string locationPart)
 		{
 			var name = e.Name;
 			var schema = e.Schema;
-			if (ignoreSchemas.Contains(schema))
-			{
-				return null;
-			}
-
-
+			
 			var urn = new[] { e.Urn };
 			var table = e as Table;
 			var view = e as View;
 			if ((table != null && table.IsSystemObject)
 				|| (view != null && view.IsSystemObject)
-				) return null;
+				) return false;
 
 			var sc = scripter.Script(urn);
 
@@ -712,7 +696,7 @@ namespace DbScriptomate
 			var value = sb.ToString().Trim(new[] {'\r', '\n'});
 			var location = $"{targetDir.FullName}\\{locationPart}\\{schema}.{name}.sql";
 			System.IO.File.WriteAllText(location, value);
-			return location;
+			return true;
 		}
 	}
 }
