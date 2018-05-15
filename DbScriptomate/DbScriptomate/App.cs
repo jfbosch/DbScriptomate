@@ -102,7 +102,7 @@ namespace DbScriptomate
 			return dbDir;
 		}
 
-		private void ApplyScriptsToDb(
+		private ConnectionStringSettings ApplyScriptsToDb(
 			RunArguments runArgs,
 			DirectoryInfo dbDir)
 		{
@@ -120,15 +120,8 @@ namespace DbScriptomate
 
 			ApplyMissingScripts(runArgs, conSettings, scripts);
 
-			var shouldGenereateDbObjects = false;
-			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldGenereateDbObjects);
-			if (shouldGenereateDbObjects && runArgs.RunMode == RunMode.Interactive)
-			{
-				Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsOnNewScript)");
-				Console.WriteLine("Your script file is available for you to carry on with while this process is busy");
-				runArgs.DbConnectionString = conSettings.ConnectionString;
-				GenerateDbObjects(runArgs, dbDir);
-			}
+			return conSettings;
+
 		}
 
 		private ConnectionStringSettings LetUserPickDbConnection(
@@ -293,6 +286,12 @@ namespace DbScriptomate
 			Console.WriteLine("4) Generate Db Objects");
 			var input = Console.ReadKey();
 
+			var generateDbObjectsOnNewScript = false;
+			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out generateDbObjectsOnNewScript);
+
+			var generateDbObjectsAfterApplyScripts = false;
+			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsAfterApplyScripts"), out generateDbObjectsAfterApplyScripts);
+
 			Console.Clear();
 			switch (input.KeyChar)
 			{
@@ -300,7 +299,18 @@ namespace DbScriptomate
 					GenerateNewScript(runArgs, dbDir);
 					break;
 				case '2':
-					ApplyScriptsToDb(runArgs, dbDir);
+					var connection = ApplyScriptsToDb(runArgs, dbDir);
+					if (connection != null && generateDbObjectsAfterApplyScripts)
+					{
+						Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsAfterApplyScripts)");
+						Console.WriteLine("Press any key to continue or press 's' to skip");
+						input = Console.ReadKey(true);
+						if (input.Key != ConsoleKey.S)
+						{
+							runArgs.DbConnectionString = connection.ConnectionString;
+							GenerateDbObjects(runArgs, dbDir);
+						}
+					}
 					break;
 				case '3':
 					InitialSetup();
@@ -383,17 +393,6 @@ namespace DbScriptomate
 			Console.WriteLine("using {0} next", runArgs.ScriptNumber);
 			Console.WriteLine("created file: {0}\\{1}", dbDir.Name, newScript);
 			Console.WriteLine();
-
-			var shouldGenereateDbObjects = false;
-			bool.TryParse(System.Configuration.ConfigurationManager.AppSettings.Get("GenerateDbObjectsOnNewScript"), out shouldGenereateDbObjects);
-
-			if (shouldGenereateDbObjects)
-			{
-				Console.WriteLine("Automatically generating db object scripts (GenerateDbObjectsOnNewScript)");
-				Console.WriteLine("Your script file is available for you to carry on with while this process is busy");
-				GenerateDbObjects(runArgs, dbDir);
-			}
-
 		}
 
 		private decimal ToDecimal(string filename)
