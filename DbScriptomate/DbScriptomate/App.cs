@@ -228,11 +228,18 @@ namespace DbScriptomate
 			builder.MultipleActiveResultSets = false;
 			var connectionString = builder.ToString();
 			var sqlConnection = new SqlConnection(connectionString);
+
+			int scriptExecutionTimeoutInSeconds;
+			if (!int.TryParse(ConfigurationManager.AppSettings.Get("ScriptExecutionTimeoutInSeconds"), out scriptExecutionTimeoutInSeconds))
+				scriptExecutionTimeoutInSeconds = 600;
+
 			Server server = null;
 			try
 			{
 				var serverConnection = new ServerConnection(sqlConnection);
 				server = new Server(serverConnection);
+				server.ConnectionContext.StatementTimeout = scriptExecutionTimeoutInSeconds;
+
 				server.ConnectionContext.BeginTransaction();
 				server.ConnectionContext.ExecuteNonQuery(sql);
 				server.ConnectionContext.CommitTransaction();
